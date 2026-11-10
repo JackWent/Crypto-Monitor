@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XMR Mining Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.2.0/chartjs-plugin-zoom.min.js"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-glow bg-glow--cyan" aria-hidden="true"></div>
+    <div class="bg-glow bg-glow--violet" aria-hidden="true"></div>
+
+    <div id="app" v-cloak>
+        <div class="toast-stack" aria-live="polite">
+            <transition-group name="toast">
+                <div
+                    v-for="toast in toasts"
+                    :key="toast.id"
+                    class="toast"
+                    :class="`toast--${toast.type}`"
+                >
+                    <span class="toast-icon">{{ toastIcon(toast.type) }}</span>
+                    <span class="toast-message">{{ toast.message }}</span>
+                    <button class="toast-close" @click="dismissToast(toast.id)" aria-label="Dismiss">&times;</button>
+                </div>
+            </transition-group>
+        </div>
+
+        <div class="container">
+            <header class="header">
+                <div class="title-container">
+                    <img src="xmr-logo.png" alt="XMR Logo" class="xmr-logo">
+                    <div class="title-text">
+                        <h1>XMR Mining Dashboard</h1>
+                        <div class="live-badge" :class="{ 'live-badge--stale': !isLive }">
+                            <span class="live-dot"></span>
+                            {{ isLive ? 'LIVE' : 'RECONNECTING' }}
+                        </div>
+                    </div>
+                </div>
+                <div class="header-clock" aria-live="off">{{ currentTime }}</div>
+                <div class="time-controls" role="tablist" aria-label="Time period">
+                    <button
+                        v-for="period in periodOptions"
+                        class="time-toggle"
+                        :key="period.value"
+                        :class="{ active: currentPeriod === period.value }"
+                        role="tab"
+                        :aria-selected="currentPeriod === period.value"
+                        @click="setPeriod(period.value)"
+                    >
+                        {{ period.label }}
+                    </button>
+                </div>
+            </header>
+
+            <div class="pool-stats">
+                <div class="stat-card stat-card--cyan" :class="{ 'is-loading': isInitialStatsLoading }">
+                    <div class="stat-card-glow"></div>
+                    <div class="label">Total Hashrate</div>
+                    <div class="value" :class="{ 'value--flash': flash.hashrate }" v-if="!isInitialStatsLoading">{{ stats.totalHashrate }}</div>
+                    <div class="skeleton skeleton-value" v-else></div>
+                    <div class="value-change" :class="stats.hashrateChangeClass" v-if="stats.hashrateChange">{{ stats.hashrateChange }}</div>
+                </div>
+                <div class="stat-card stat-card--violet" :class="{ 'is-loading': isInitialStatsLoading }">
+                    <div class="stat-card-glow"></div>
+                    <div class="label">Total Hashes</div>
+                    <div class="value" :class="{ 'value--flash': flash.hashes }" v-if="!isInitialStatsLoading">{{ stats.totalHashes }}</div>
+                    <div class="skeleton skeleton-value" v-else></div>
+                </div>
+                <div class="stat-card stat-card--cyan" :class="{ 'is-loading': isInitialStatsLoading }">
+                    <div class="stat-card-glow"></div>
+                    <div class="label">Total Workers</div>
+                    <div class="value" :class="{ 'value--flash': flash.workers }" v-if="!isInitialStatsLoading">{{ stats.totalWorkers }}</div>
+                    <div class="skeleton skeleton-value" v-else></div>
+                </div>
+                <div class="stat-card stat-card--amber" :class="{ 'is-loading': isInitialStatsLoading }">
+                    <div class="stat-card-glow"></div>
+                    <div class="label">Pending Balance</div>
+                    <div class="value" :class="{ 'value--flash': flash.balance }" v-if="!isInitialStatsLoading">{{ stats.pendingBalance }}</div>
+                    <div class="skeleton skeleton-value" v-else></div>
+                </div>
+                <div class="stat-card stat-card--green" :class="{ 'is-loading': isInitialStatsLoading }">
+                    <div class="stat-card-glow"></div>
+                    <div class="label">Total Paid</div>
+                    <div class="value" :class="{ 'value--flash': flash.paid }" v-if="!isInitialStatsLoading">{{ stats.totalPaid }}</div>
+                    <div class="skeleton skeleton-value" v-else></div>
+                </div>
+                <div class="stat-card stat-card--violet" :class="{ 'is-loading': isInitialStatsLoading }">
+                    <div class="stat-card-glow"></div>
+                    <div class="label">Last Reward</div>
+                    <div class="value" :class="{ 'value--flash': flash.reward }" v-if="!isInitialStatsLoading">{{ stats.lastReward }}</div>
+                    <div class="skeleton skeleton-value" v-else></div>
+                </div>
+                <div class="stat-card stat-card--green" :class="{ 'is-loading': isInitialStatsLoading }">
+                    <div class="stat-card-glow"></div>
+                    <div class="label">Blocks Found</div>
+                    <div class="value" :class="{ 'value--flash': flash.blocks }" v-if="!isInitialStatsLoading">{{ stats.blocksFound }}</div>
+                    <div class="skeleton skeleton-value" v-else></div>
+                </div>
+                <div class="stat-card stat-card--amber" :class="{ 'is-loading': isInitialStatsLoading }">
+                    <div class="stat-card-glow"></div>
+                    <div class="label">Current XMR to USD</div>
+                    <div class="value" :class="{ 'value--flash': flash.xmrUsd }" v-if="!isInitialStatsLoading">{{ stats.currentXmrToUsd }}</div>
+                    <div class="skeleton skeleton-value" v-else></div>
+                    <div class="value-change" :class="stats.xmrUsdChangeClass" v-if="stats.xmrUsdChange">{{ stats.xmrUsdChange }}</div>
+                </div>
+            </div>
+
+            <section class="panel workers-panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">Workers</h2>
+                    <div class="worker-summary" v-if="!workersLoading">
+                        <span class="worker-count-pill worker-count-pill--online">{{ workerCounts.online }} online</span>
+                        <span class="worker-count-pill worker-count-pill--idle" v-if="workerCounts.idle">{{ workerCounts.idle }} idle</span>
+                        <span class="worker-count-pill worker-count-pill--offline" v-if="workerCounts.offline">{{ workerCounts.offline }} offline</span>
+                    </div>
+                </div>
+                <div class="table-scroll">
+                    <table class="worker-table">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Worker ID</th>
+                                <th>Hash Rate</th>
+                                <th>Accepted Hashes</th>
+                                <th>Expired Hashes</th>
+                                <th>Last Share</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template v-if="workersLoading">
+                                <tr v-for="n in 3" :key="`skeleton-${n}`" class="skeleton-row">
+                                    <td colspan="6"><div class="skeleton skeleton-row-bar"></div></td>
+                                </tr>
+                            </template>
+                            <tr v-else-if="activeWorkers.length === 0" class="empty-row">
+                                <td colspan="6">No active workers found</td>
+                            </tr>
+                            <tr
+                                v-else
+                                v-for="worker in activeWorkers"
+                                :key="`${worker.workerId || 'unknown'}-${worker.lastShare || 0}`"
+                                class="worker-row"
+                            >
+                                <td>
+                                    <span class="status-pill" :class="`status-pill--${worker.status || 'online'}`">
+                                        <span class="status-dot"></span>
+                                        {{ (worker.status || 'online') }}
+                                    </span>
+                                </td>
+                                <td class="mono">{{ worker.workerId || 'Unknown' }}</td>
+                                <td class="mono accent-cyan">{{ worker.hashrate || '0 H/s' }}</td>
+                                <td class="mono">{{ worker.hashes || '0' }}</td>
+                                <td class="mono" :class="{ 'accent-red': Number(worker.expired) > 0 }">{{ worker.expired || '0' }}</td>
+                                <td class="mono dim">{{ formatLastShare(worker.lastShare) }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <div class="graphs-container">
+                <div class="panel graph-card">
+                    <div class="graph-header">
+                        <div class="graph-title"><span class="graph-dot graph-dot--cyan"></span>Pool Hashrate (H/s)</div>
+                        <button class="chart-reset-zoom" v-if="isHashrateZoomed" @click="resetHashrateZoom">Reset Zoom</button>
+                    </div>
+                    <div class="graph-canvas-wrap">
+                        <div class="chart-loading-overlay" v-if="chartsLoading"><div class="spinner"></div></div>
+                        <canvas ref="hashrateCanvas"></canvas>
+                    </div>
+                    <div class="graph-hint">Click and drag to zoom &middot; double-click to reset</div>
+                </div>
+                <div class="panel graph-card">
+                    <div class="graph-header">
+                        <div class="graph-title"><span class="graph-dot graph-dot--amber"></span>XMR to USD</div>
+                        <button class="chart-reset-zoom" v-if="isXmrUsdZoomed" @click="resetXmrUsdZoom">Reset Zoom</button>
+                    </div>
+                    <div class="graph-canvas-wrap">
+                        <div class="chart-loading-overlay" v-if="chartsLoading"><div class="spinner"></div></div>
+                        <canvas ref="xmrUsdCanvas"></canvas>
+                    </div>
+                    <div class="graph-hint">Click and drag to zoom &middot; double-click to reset</div>
+                </div>
+            </div>
+
+            <section class="panel admin-panel">
+                <button
+                    class="admin-toggle"
+                    @click="isAdminExpanded = !isAdminExpanded"
+                    :aria-expanded="isAdminExpanded"
+                    aria-controls="admin-panel-content"
+                >
+                    <span class="admin-toggle-title">Admin Functions</span>
+                    <span class="admin-toggle-arrow" :class="{ 'admin-toggle-arrow--open': isAdminExpanded }">&#9662;</span>
+                </button>
+                <transition name="expand">
+                    <div id="admin-panel-content" class="admin-content" v-show="isAdminExpanded">
+                        <div class="admin-auth-panel" v-if="isAdminAuthEnabled && !isAdminAuthenticated">
+                            <div class="admin-auth-title">Enter admin password to unlock admin settings</div>
+                            <div class="admin-auth-controls">
+                                <input
+                                    class="admin-password-input"
+                                    type="password"
+                                    v-model="adminPassword"
+                                    autocomplete="current-password"
+                                    placeholder="Admin password"
+                                    @keyup.enter="loginAdmin"
+                                >
+                                <button
+                                    class="admin-button admin-button--primary"
+                                    :disabled="isAdminAuthenticating || !adminPassword"
+                                    @click="loginAdmin"
+                                >
+                                    {{ isAdminAuthenticating ? 'Unlocking...' : 'Unlock Admin' }}
+                                </button>
+                            </div>
+                            <div class="import-status" v-if="adminAuthMessage">{{ adminAuthMessage }}</div>
+                        </div>
+                        <div v-else>
+                            <div class="admin-buttons">
+                                <button class="admin-button" :disabled="isSendingEmail" @click="sendDailyEmail">
+                                    {{ isSendingEmail ? 'Sending...' : 'Test Daily Email' }}
+                                </button>
+                                <button class="admin-button" :disabled="isSendingOfflineTestEmail" @click="sendTestOfflineAlert">
+                                    {{ isSendingOfflineTestEmail ? 'Sending...' : 'Test Offline Alert Email' }}
+                                </button>
+                                <button
+                                    class="admin-button"
+                                    :disabled="isManualUpdating"
+                                    @click="manualUpdate"
+                                >
+                                    {{ isManualUpdating ? 'Updating...' : 'Force Data Update' }}
+                                </button>
+                                <button
+                                    class="admin-button admin-button--ghost"
+                                    v-if="isAdminAuthEnabled"
+                                    @click="logoutAdmin"
+                                >
+                                    Lock Admin
+                                </button>
+                            </div>
+                            <div class="import-section">
+                                <div class="import-title">Export Historical JSON Backup</div>
+                                <div class="import-controls">
+                                    <button class="admin-button" :disabled="isExportingHistory" @click="exportHistoryFiles">
+                                        {{ isExportingHistory ? 'Exporting...' : 'Export Full History Backup' }}
+                                    </button>
+                                </div>
+                                <div class="import-status" v-if="backupStatusMessage">{{ backupStatusMessage }}</div>
+                            </div>
+                            <div class="import-section">
+                                <div class="import-title">Import Historical JSON Data</div>
+                                <div class="import-controls">
+                                    <label class="import-file-label">
+                                        XMR History JSON
+                                        <input
+                                            ref="xmrHistoryInput"
+                                            class="import-file-input"
+                                            type="file"
+                                            accept=".json,application/json"
+                                            @change="handleHistoryFileChange($event, 'xmr')"
+                                        >
+                                        <span class="import-file-name">{{ xmrHistoryFile ? xmrHistoryFile.name : 'No file selected' }}</span>
+                                    </label>
+                                    <label class="import-file-label">
+                                        Hashrate History JSON
+                                        <input
+                                            ref="hashrateHistoryInput"
+                                            class="import-file-input"
+                                            type="file"
+                                            accept=".json,application/json"
+                                            @change="handleHistoryFileChange($event, 'hashrate')"
+                                        >
+                                        <span class="import-file-name">{{ hashrateHistoryFile ? hashrateHistoryFile.name : 'No file selected' }}</span>
+                                    </label>
+                                    <button
+                                        class="admin-button"
+                                        :disabled="isImportingHistory || (!xmrHistoryFile && !hashrateHistoryFile)"
+                                        @click="importHistoryFiles"
+                                    >
+                                        {{ isImportingHistory ? 'Importing...' : 'Import History Files' }}
+                                    </button>
+                                </div>
+                                <div class="import-status" v-if="importStatusMessage">{{ importStatusMessage }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </transition>
+            </section>
+
+            <footer class="footer">
+                <span>XMR Mining Dashboard</span>
+                <span class="footer-dot">&middot;</span>
+                <span>{{ activeWorkers.length }} worker{{ activeWorkers.length === 1 ? '' : 's' }} tracked</span>
+                <div class="footer-copyright">&copy; {{ new Date().getFullYear() }} Jack Went. All rights reserved.</div>
+            </footer>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

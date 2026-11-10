@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: Crypto-DB
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-crypto_dashboard}
+      - POSTGRES_USER=${POSTGRES_USER:-crypto_dashboard}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-replace_with_strong_password}
+      - TZ=${TZ:-Europe/London}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      crypto-dashboard-network:
+        ipv4_address: 172.22.0.10
+        aliases:
+          - postgres
+          - crypto-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-crypto_dashboard} -d ${POSTGRES_DB:-crypto_dashboard}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  xmr-dashboard:
+    # Default is the registry's latest release, not a local build: the containers host's nightly
+    # update-containers.sh runs "docker compose pull && up -d" without IMAGE_TAG, and the old
+    # crypto-monitor:local default made it put a July build back every morning, undoing each deploy.
+    image: ${IMAGE_TAG:-ghcr.io/jackwent/crypto-monitor:latest}
+    container_name: Crypto-GUI
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${PORT:-7050}:${PORT:-7050}"
+    volumes:
+      # Kept for backward compatibility to allow migration from legacy JSON/SQLite files.
+      - crypto_data:/data
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - DATA_DIR=${DATA_DIR:-/data}
+      - PORT=${PORT:-7050}
+      - TZ=${TZ:-Europe/London}
+      - MINER_STATS_CACHE_TTL_MS=${MINER_STATS_CACHE_TTL_MS:-10000}
+      - HASHRATE_SAMPLE_MIN_INTERVAL_MS=${HASHRATE_SAMPLE_MIN_INTERVAL_MS:-30000}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-crypto_dashboard}
+      - POSTGRES_USER=${POSTGRES_USER:-crypto_dashboard}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-replace_with_strong_password}
+      - POSTGRES_SSL=${POSTGRES_SSL:-false}
+      - DATA_RETENTION_DAYS=${DATA_RETENTION_DAYS:-365}
+      - DASHBOARD_PUBLIC_URL=${DASHBOARD_PUBLIC_URL:-}
+      - DASHBOARD_LOGO_URL=${DASHBOARD_LOGO_URL:-}
+    restart: unless-stopped
+    networks:
+      crypto-dashboard-network:
+        ipv4_address: 172.22.0.20
+        aliases:
+          - xmr-dashboard
+          - crypto-gui
+          - crypto-dashboard
+      home_apps:
+        aliases:
+          - xmr-dashboard
+          - crypto-gui
+          - crypto-dashboard
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.mjs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  crypto-dashboard-network:
+    name: crypto-dashboard-network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+          gateway: 172.22.0.1
+  home_apps:
+    external: true
+
+volumes:
+  postgres_data:
+  crypto_data:
