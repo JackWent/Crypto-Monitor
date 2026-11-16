@@ -1,23 +1,60 @@
-# XMR Mining Dashboard
+<h1 align="center">XMR Mining Dashboard</h1>
 
-A self-hosted dashboard for monitoring XMR (Monero) mining statistics, styled as a neon cyberpunk control room. It tracks live pool stats, historical hashrate and XMR/USD trends, per-worker status, and can email you a daily summary — all backed by PostgreSQL for long-term history.
+<p align="center">
+  <b>A self-hosted Monero (XMR) mining dashboard for xmrpool.eu miners.</b><br>
+  Live hashrate, per-worker status, XMR price, a year of history charts, offline alerts and a daily email report.<br>
+  Node.js, PostgreSQL and Docker, with no build step.
+</p>
 
-![Node](https://img.shields.io/badge/node-%3E%3D18-3ddc84) ![License](https://img.shields.io/badge/license-MIT-22e5cc)
+<p align="center">
+  <img src="https://img.shields.io/badge/Monero-XMR-FF6600?logo=monero&logoColor=white" alt="Monero">
+  <img src="https://img.shields.io/badge/node-%3E%3D18-3ddc84?logo=nodedotjs&logoColor=white" alt="Node 18 or later">
+  <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL 16">
+  <img src="https://img.shields.io/badge/Docker-compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose">
+  <img src="https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white" alt="Vue 3">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-22e5cc" alt="MIT licence"></a>
+</p>
+
+<p align="center">
+  <a href="https://jackwent.co.uk/xmr-mining-dashboard/"><b>Read the write-up</b></a> ·
+  <a href="#quick-start-docker">Quick start</a> ·
+  <a href="#api-endpoints">API</a>
+</p>
+
+<p align="center">
+  <img src="docs/dashboard.webp" alt="The dashboard: stat cards for hashrate, hashes, workers, balance, payouts and XMR price, a per-worker table, and pool hashrate and XMR to USD charts" width="100%">
+</p>
+
+The pool's own page only shows what's happening now. This keeps the lot: hashrate and price history in PostgreSQL for at least a year, a status pill for every rig, an email when a worker goes offline and when it's back, and a summary in your inbox every morning. It's styled as a neon cyberpunk control room.
+
+> [!NOTE]
+> Miner stats come from the **[xmrpool.eu](https://xmrpool.eu)** API for your wallet address. For another pool, change the stats URL in `src/minerStats.js` to match.
 
 ## Features
 
-- Live pool stats: hashrate, hashes, workers, pending balance, paid, last reward, blocks found
-- Real-time XMR → USD price tracking, refreshed every 15 minutes
-- Historical charts (24h / 7d / 30d / 90d / 1y) for hashrate and XMR/USD, backed by PostgreSQL
-- Per-worker table with live **online / idle / offline** status pills
-- Minimum 365-day data retention, automatically enforced and pruned
-- JSON history import/export tools for backups and migrations
-- Optional password-protected admin panel (session-based, HMAC-signed cookies)
-- Daily email report via Microsoft Graph, plus manual test-send endpoints
-- Toast notifications, skeleton loading states, and a "LIVE" status indicator in the UI
-- Automatic migration from legacy SQLite / JSON history files into PostgreSQL
+- **Live pool stats:** hashrate, total hashes, workers, pending balance, total paid, last reward and blocks found.
+- **Per-worker table** with **online / idle / offline** pills, based on each worker's last share.
+- **Offline alerts:** an email when a worker has been offline for 10 minutes (adjustable), and another when it's back. The alert state survives restarts, so you don't get repeats.
+- **History charts** for 24h, 7d, 30d, 90d and 1y, for both hashrate and XMR/USD, with at least 365 days kept.
+- **XMR → USD price** every 15 minutes from CoinGecko, falling back to CoinCap and then Binance.
+- **Daily email report** through Microsoft Graph, plus test-send endpoints.
+- **Password-protected admin panel** (optional) for JSON history export and import, using sessions with HMAC-signed cookies.
+- **Easy upgrades:** existing SQLite or JSON history is migrated into PostgreSQL automatically.
+- **No frontend build:** plain Vue 3 and Chart.js from a CDN.
 
-## Project Structure
+## Quick start (Docker)
+
+```bash
+git clone https://github.com/JackWent/Crypto-Monitor.git
+cd Crypto-Monitor
+cp .env.example .env          # set XMR_WALLET_ADDRESS and POSTGRES_PASSWORD at least
+docker build -t crypto-monitor:local .
+IMAGE_TAG=crypto-monitor:local docker compose up -d
+```
+
+Then open <http://localhost:7050>. Two containers start: `Crypto-GUI` (the Node app) and `Crypto-DB` (PostgreSQL 16), and the database is ready before the app starts. The email settings are only needed for the daily report and the alerts.
+
+## Project structure
 
 ```
 .
@@ -40,43 +77,6 @@ A self-hosted dashboard for monitoring XMR (Monero) mining statistics, styled as
 ```
 
 No build step: the frontend is plain Vue 3 and Chart.js loaded from CDN, so `public/` is served as-is.
-
-## Docker Setup
-
-### Prerequisites
-
-- Docker
-- Docker Compose
-
-### Installation and Running
-
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/JackWent/Crypto-Monitor.git
-   cd crypto-monitor
-   ```
-
-2. Create your environment file:
-   ```bash
-   cp .env.example .env
-   ```
-
-3. Start the application using Docker Compose:
-   ```bash
-   docker-compose up -d
-   ```
-
-4. Access the dashboard at:
-   ```
-   http://localhost:7050
-   ```
-
-### Docker Components
-
-The application runs in two containers:
-
-1. **xmr-dashboard**: The main Node.js application serving the dashboard
-2. **postgres**: Dedicated PostgreSQL database container for metric persistence
 
 ## Manual Setup (without Docker)
 
@@ -142,6 +142,8 @@ The application runs in two containers:
 - `GRAPH_CLIENT_SECRET` (required for email features)
 - `GRAPH_SENDER_EMAIL` (required for email features)
 - `GRAPH_RECIPIENT_EMAILS` (comma-separated, required for email features)
+- `ALERT_RECIPIENT_EMAILS` (optional; who gets worker offline / back-online alerts, defaults to `GRAPH_RECIPIENT_EMAILS`)
+- `OFFLINE_ALERT_THRESHOLD_MINUTES` (optional; how long a worker must be offline before an alert, default `10`)
 - `DASHBOARD_PUBLIC_URL` (used for links/logo in email body)
 - `DASHBOARD_LOGO_URL` (optional absolute URL for email logo image; overrides `${DASHBOARD_PUBLIC_URL}/xmr-logo.png`)
   For reliable email rendering, use a public `https://` URL.
@@ -179,6 +181,8 @@ Admin-only routes (`/api/import-history`, `/api/export-history*`, `/send-daily-e
 - You can export fresh JSON backup files from the Admin panel before rebuilding containers, then restore them with the import tool
 - You can also import historical backup files manually from the Admin panel in the dashboard
 
-## License
+## Licence
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+Released under the MIT licence. See [LICENSE](LICENSE).
+
+More self-hosted projects and write-ups are at [jackwent.co.uk](https://jackwent.co.uk).
