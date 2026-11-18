@@ -235,6 +235,9 @@
                                 <button class="admin-button" :disabled="isSendingOfflineTestEmail" @click="sendTestOfflineAlert">
                                     {{ isSendingOfflineTestEmail ? 'Sending...' : 'Test Offline Alert Email' }}
                                 </button>
+                                <button class="admin-button" :disabled="isSendingDiscordTest" @click="sendTestDiscordAlert">
+                                    {{ isSendingDiscordTest ? 'Sending...' : 'Test Discord Alert' }}
+                                </button>
                                 <button
                                     class="admin-button"
                                     :disabled="isManualUpdating"

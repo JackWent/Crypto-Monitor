@@ -2,6 +2,7 @@ import express from 'express';
 import * as config from '../config.js';
 import { isDbReady, getCachedXmrRate, getLastUpdated } from '../state.js';
 import { isEmailConfigured } from '../email/graphClient.js';
+import { isDiscordConfigured } from '../notify/discord.js';
 
 const router = express.Router();
 
@@ -18,9 +19,11 @@ router.get('/health', (req, res) => {
     hashrateSampleIntervalMs: config.HASHRATE_SAMPLE_MIN_INTERVAL_MS,
     walletConfigStatus: config.XMR_WALLET_ADDRESS ? 'configured' : 'missing',
     emailConfigStatus: isEmailConfigured() ? 'configured' : 'missing',
+    discordConfigStatus: isDiscordConfigured() ? 'configured' : 'missing',
+    minerAlertChannel: isDiscordConfigured() ? 'discord' : (isEmailConfigured() ? 'email' : 'none'),
     xmrRateStatus: getCachedXmrRate() !== null ? 'available' : 'unavailable',
     lastRateUpdate: lastUpdated ? lastUpdated.toISOString() : null,
-    version: '1.0.0'  // You can update this with your actual version
+    version: '1.1.0'
   };
 
   res.status(200).json(healthStatus);

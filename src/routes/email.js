@@ -5,6 +5,7 @@ import { sendDailyEmail } from '../email/dailyEmail.js';
 import { generateDailyEmailBody, generateMinerOfflineEmailBody, generateMinerBackOnlineEmailBody } from '../email/template.js';
 import { getMinerStats } from '../minerStats.js';
 import { getCachedXmrRate } from '../state.js';
+import { isDiscordConfigured, sendDiscordEmbed, buildMinerOfflineEmbed, buildMinerBackOnlineEmbed } from '../notify/discord.js';
 import * as config from '../config.js';
 
 const router = express.Router();
@@ -112,6 +113,32 @@ router.get('/test-back-online-alert', requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Error sending test back-online alert:', error);
     res.status(500).send(`Failed to send test back-online alert: ${error.message}`);
+  }
+});
+
+// Test endpoint for the Discord miner alert (uses fake data). Sends an offline test
+// by default; pass ?kind=online for the back-online embed.
+router.get('/test-discord-alert', requireAdmin, async (req, res) => {
+  try {
+    if (!isDiscordConfigured()) {
+      return res.status(400).send('Discord is not configured. Set DISCORD_WEBHOOK_URL in the environment.');
+    }
+    const workerId = req.query.workerId || 'test-rig';
+    const kind = req.query.kind === 'online' ? 'online' : 'offline';
+    const offlineMinutes = req.query.minutes ? parseFloat(req.query.minutes) : 15;
+    const worker = {
+      workerId,
+      lastShare: Math.floor(Date.now() / 1000) - (kind === 'offline' ? Math.round(offlineMinutes * 60) : 0),
+    };
+
+    const embed = kind === 'offline'
+      ? buildMinerOfflineEmbed(worker, offlineMinutes * 60 * 1000)
+      : buildMinerBackOnlineEmbed(worker);
+    await sendDiscordEmbed(embed);
+    res.status(200).send(`Test Discord ${kind} alert sent for "${workerId}"!`);
+  } catch (error) {
+    console.error('Error sending test Discord alert:', error.message);
+    res.status(500).send(`Failed to send test Discord alert: ${error.message}`);
   }
 });
 

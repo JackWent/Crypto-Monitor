@@ -31,6 +31,27 @@ async function saveAlertState() {
 }
 import { generateMinerOfflineEmailBody, generateMinerBackOnlineEmailBody } from './template.js';
 import { sendEmail } from './graphClient.js';
+import { isDiscordConfigured, sendDiscordEmbed, buildMinerOfflineEmbed, buildMinerBackOnlineEmbed } from '../notify/discord.js';
+
+// Single place that decides HOW a miner alert is delivered. Discord when a webhook
+// is configured, otherwise email. `kind` is 'offline' or 'online'. Returns the
+// channel used. Throws on failure so the caller leaves the alert unmarked and retries.
+export async function deliverMinerAlert(kind, worker, offlineDurationMs, accessToken) {
+  const workerId = worker.workerId || 'Unknown';
+  if (isDiscordConfigured()) {
+    const embed = kind === 'offline'
+      ? buildMinerOfflineEmbed(worker, offlineDurationMs)
+      : buildMinerBackOnlineEmbed(worker);
+    await sendDiscordEmbed(embed);
+    return 'discord';
+  }
+  const subject = kind === 'offline' ? `Miner Offline: ${workerId}` : `Miner Back Online: ${workerId}`;
+  const body = kind === 'offline'
+    ? generateMinerOfflineEmailBody(worker, offlineDurationMs)
+    : generateMinerBackOnlineEmailBody(worker);
+  await sendEmail(accessToken, subject, body, config.ALERT_RECIPIENT_EMAILS);
+  return 'email';
+}
 
 // Runs on the same cadence as the hashrate poll. A worker only ever
 // disappears from perWorkerStats on this pool API by dropping out of
@@ -89,20 +110,18 @@ async function updateAlertState(accessToken, worker, workerId, isOffline, offlin
 
   if (isOffline && !alreadyAlerted) {
     try {
-      const body = generateMinerOfflineEmailBody(worker, offlineDurationMs);
-      await sendEmail(accessToken, `Miner Offline: ${workerId}`, body, config.ALERT_RECIPIENT_EMAILS);
-      // Only marked once the email has actually gone, so a failed send is retried on the next check
+      const channel = await deliverMinerAlert('offline', worker, offlineDurationMs, accessToken);
+      // Only marked once the alert has actually gone, so a failed send is retried on the next check
       markOfflineAlertSent(workerId);
-      console.log(`Offline alert sent for worker "${workerId}" (offline ${Math.floor(offlineDurationMs / 60000)}m).`);
+      console.log(`Offline alert sent (${channel}) for worker "${workerId}" (offline ${Math.floor(offlineDurationMs / 60000)}m).`);
     } catch (error) {
       console.error(`Failed to send offline alert for worker "${workerId}" (will retry):`, error.message);
     }
   } else if (!isOffline && alreadyAlerted) {
     try {
-      const body = generateMinerBackOnlineEmailBody(worker);
-      await sendEmail(accessToken, `Miner Back Online: ${workerId}`, body, config.ALERT_RECIPIENT_EMAILS);
+      const channel = await deliverMinerAlert('online', worker, offlineDurationMs, accessToken);
       clearOfflineAlert(workerId);
-      console.log(`Back-online alert sent for worker "${workerId}".`);
+      console.log(`Back-online alert sent (${channel}) for worker "${workerId}".`);
     } catch (error) {
       console.error(`Failed to send back-online alert for worker "${workerId}" (will retry):`, error.message);
     }

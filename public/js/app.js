@@ -44,6 +44,7 @@ createApp({
         const adminAuthMessage = ref('');
         const isSendingEmail = ref(false);
         const isSendingOfflineTestEmail = ref(false);
+        const isSendingDiscordTest = ref(false);
         const isManualUpdating = ref(false);
         const isExportingHistory = ref(false);
         const isImportingHistory = ref(false);
@@ -717,6 +718,29 @@ createApp({
             }
         }
 
+        async function sendTestDiscordAlert() {
+            if (isSendingDiscordTest.value) {
+                return;
+            }
+
+            try {
+                isSendingDiscordTest.value = true;
+                const response = await fetch('/test-discord-alert?workerId=test-rig&minutes=15', {
+                    credentials: 'same-origin'
+                });
+                if (!response.ok) {
+                    const detail = await response.text().catch(() => response.statusText);
+                    throw new Error(detail || response.statusText);
+                }
+                pushToast('Test Discord alert sent successfully!', 'success');
+            } catch (error) {
+                console.error('Error sending test Discord alert:', error);
+                pushToast(`Failed to send test Discord alert: ${error.message}`, 'error');
+            } finally {
+                isSendingDiscordTest.value = false;
+            }
+        }
+
         async function manualUpdate() {
             if (isManualUpdating.value) {
                 return;
@@ -967,6 +991,7 @@ createApp({
             adminAuthMessage,
             isSendingEmail,
             isSendingOfflineTestEmail,
+            isSendingDiscordTest,
             isManualUpdating,
             isExportingHistory,
             isImportingHistory,
@@ -987,6 +1012,7 @@ createApp({
             logoutAdmin,
             sendDailyEmail,
             sendTestOfflineAlert,
+            sendTestDiscordAlert,
             manualUpdate,
             exportHistoryFiles,
             handleHistoryFileChange,

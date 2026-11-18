@@ -29,6 +29,11 @@ export const GRAPH_RECIPIENT_EMAILS = (process.env.GRAPH_RECIPIENT_EMAILS || '')
 export const DASHBOARD_PUBLIC_URL = (process.env.DASHBOARD_PUBLIC_URL || '').trim();
 export const DASHBOARD_LOGO_URL = (process.env.DASHBOARD_LOGO_URL || '').trim();
 
+// Discord webhook for miner offline/back-online alerts. When set, these alerts go
+// to Discord instead of email (the daily summary email is unaffected). Secret —
+// keep it in .env only, never in the repo.
+export const DISCORD_WEBHOOK_URL = (process.env.DISCORD_WEBHOOK_URL || '').trim();
+
 // Miner offline alerting
 const rawAlertRecipients = (process.env.ALERT_RECIPIENT_EMAILS || '')
   .split(',')
