@@ -30,34 +30,55 @@ async function saveAlertState() {
   });
 }
 import { generateMinerOfflineEmailBody, generateMinerBackOnlineEmailBody } from './template.js';
-import { sendEmail } from './graphClient.js';
-import { isDiscordConfigured, sendDiscordEmbed, buildMinerOfflineEmbed, buildMinerBackOnlineEmbed } from '../notify/discord.js';
+import { sendEmail, getAccessToken } from './graphClient.js';
+import { sendDiscordEmbed, buildMinerOfflineEmbed, buildMinerBackOnlineEmbed } from '../notify/discord.js';
+import { getNotificationSettings } from '../notify/settings.js';
 
-// Single place that decides HOW a miner alert is delivered. Discord when a webhook
-// is configured, otherwise email. `kind` is 'offline' or 'online'. Returns the
-// channel used. Throws on failure so the caller leaves the alert unmarked and retries.
-export async function deliverMinerAlert(kind, worker, offlineDurationMs, accessToken) {
-  const workerId = worker.workerId || 'Unknown';
-  if (isDiscordConfigured()) {
-    const embed = kind === 'offline'
-      ? buildMinerOfflineEmbed(worker, offlineDurationMs)
-      : buildMinerBackOnlineEmbed(worker);
-    await sendDiscordEmbed(embed);
-    return 'discord';
+// Single place that decides HOW a miner alert is delivered. It sends to every channel that
+// is enabled in the saved notification settings — Discord (when a webhook is set) and/or
+// email (when the checkbox is on and Graph is configured). `kind` is 'offline' or 'online'.
+// Returns { delivered: [...channels], errors: [...] }; it does not throw, so the caller can
+// mark the alert sent when at least one channel delivered and retry when a channel errored.
+export async function deliverMinerAlert(kind, worker, offlineDurationMs) {
+  const settings = await getNotificationSettings();
+  const delivered = [];
+  const errors = [];
+
+  if (settings.discordConfigured) {
+    try {
+      const embed = kind === 'offline'
+        ? buildMinerOfflineEmbed(worker, offlineDurationMs)
+        : buildMinerBackOnlineEmbed(worker);
+      await sendDiscordEmbed(embed, settings.discordWebhookUrl);
+      delivered.push('discord');
+    } catch (error) {
+      errors.push(`discord: ${error.message}`);
+    }
   }
-  const subject = kind === 'offline' ? `Miner Offline: ${workerId}` : `Miner Back Online: ${workerId}`;
-  const body = kind === 'offline'
-    ? generateMinerOfflineEmailBody(worker, offlineDurationMs)
-    : generateMinerBackOnlineEmailBody(worker);
-  await sendEmail(accessToken, subject, body, config.ALERT_RECIPIENT_EMAILS);
-  return 'email';
+
+  if (settings.emailEnabled && settings.emailConfigured) {
+    try {
+      const workerId = worker.workerId || 'Unknown';
+      const subject = kind === 'offline' ? `Miner Offline: ${workerId}` : `Miner Back Online: ${workerId}`;
+      const body = kind === 'offline'
+        ? generateMinerOfflineEmailBody(worker, offlineDurationMs)
+        : generateMinerBackOnlineEmailBody(worker);
+      const accessToken = await getAccessToken();
+      await sendEmail(accessToken, subject, body, config.ALERT_RECIPIENT_EMAILS);
+      delivered.push('email');
+    } catch (error) {
+      errors.push(`email: ${error.message}`);
+    }
+  }
+
+  return { delivered, errors };
 }
 
 // Runs on the same cadence as the hashrate poll. A worker only ever
 // disappears from perWorkerStats on this pool API by dropping out of
 // perWorkerStats entirely, but lastShare going stale is a reliable enough
 // signal to fire on before that happens.
-export async function checkOfflineMinersAndAlert(accessToken) {
+export async function checkOfflineMinersAndAlert() {
   // If the database isn't reachable the check still runs (better a possible duplicate than a missed outage)
   await loadAlertState();
   const minerStats = await getMinerStats();
@@ -85,7 +106,7 @@ export async function checkOfflineMinersAndAlert(accessToken) {
     const lastShare = Number(worker.lastShare);
     const hasValidLastShare = Number.isFinite(lastShare) && lastShare > 0;
     const offlineDurationMs = hasValidLastShare ? now - (lastShare * 1000) : Infinity;
-    await updateAlertState(accessToken, worker, workerId, offlineDurationMs > config.OFFLINE_ALERT_THRESHOLD_MS, offlineDurationMs);
+    await updateAlertState(worker, workerId, offlineDurationMs > config.OFFLINE_ALERT_THRESHOLD_MS, offlineDurationMs);
   }
 
   // A worker that has dropped out of the pool's list altogether is offline too: alert on it using the
@@ -99,31 +120,33 @@ export async function checkOfflineMinersAndAlert(accessToken) {
     }
     const lastShare = Number(lastSeen.lastShare);
     const offlineDurationMs = Number.isFinite(lastShare) && lastShare > 0 ? now - (lastShare * 1000) : Infinity;
-    await updateAlertState(accessToken, lastSeen, workerId, true, offlineDurationMs);
+    await updateAlertState(lastSeen, workerId, true, offlineDurationMs);
   }
 
   await saveAlertState();
 }
 
-async function updateAlertState(accessToken, worker, workerId, isOffline, offlineDurationMs) {
+async function updateAlertState(worker, workerId, isOffline, offlineDurationMs) {
   const alreadyAlerted = hasOfflineAlertBeenSent(workerId);
 
   if (isOffline && !alreadyAlerted) {
-    try {
-      const channel = await deliverMinerAlert('offline', worker, offlineDurationMs, accessToken);
-      // Only marked once the alert has actually gone, so a failed send is retried on the next check
+    const { delivered, errors } = await deliverMinerAlert('offline', worker, offlineDurationMs);
+    if (delivered.length > 0) {
+      // Marked only once at least one channel delivered, so a total failure is retried next check
       markOfflineAlertSent(workerId);
-      console.log(`Offline alert sent (${channel}) for worker "${workerId}" (offline ${Math.floor(offlineDurationMs / 60000)}m).`);
-    } catch (error) {
-      console.error(`Failed to send offline alert for worker "${workerId}" (will retry):`, error.message);
+      console.log(`Offline alert sent (${delivered.join(', ')}) for worker "${workerId}" (offline ${Math.floor(offlineDurationMs / 60000)}m).`);
+    } else if (errors.length > 0) {
+      console.error(`Failed to send offline alert for worker "${workerId}" (will retry): ${errors.join('; ')}`);
     }
+    // else: no channel enabled — nothing to send, leave unmarked so it fires once one is enabled
   } else if (!isOffline && alreadyAlerted) {
-    try {
-      const channel = await deliverMinerAlert('online', worker, offlineDurationMs, accessToken);
+    const { delivered, errors } = await deliverMinerAlert('online', worker, offlineDurationMs);
+    if (delivered.length > 0) {
       clearOfflineAlert(workerId);
-      console.log(`Back-online alert sent (${channel}) for worker "${workerId}".`);
-    } catch (error) {
-      console.error(`Failed to send back-online alert for worker "${workerId}" (will retry):`, error.message);
+      console.log(`Back-online alert sent (${delivered.join(', ')}) for worker "${workerId}".`);
+    } else if (errors.length > 0) {
+      console.error(`Failed to send back-online alert for worker "${workerId}" (will retry): ${errors.join('; ')}`);
     }
+    // else: no channel enabled — keep the alerted state so the resolution fires once one is
   }
 }

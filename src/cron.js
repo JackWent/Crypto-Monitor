@@ -4,7 +4,6 @@ import { updateMinerStats } from './minerStats.js';
 import { isEmailConfigured, getAccessToken } from './email/graphClient.js';
 import { sendDailyEmail } from './email/dailyEmail.js';
 import { checkOfflineMinersAndAlert } from './email/offlineAlert.js';
-import { isDiscordConfigured } from './notify/discord.js';
 import { isCronRegistered, setCronRegistered } from './state.js';
 
 export function registerCronJobs() {
@@ -22,24 +21,18 @@ export function registerCronJobs() {
   // Hashrate history update every 5 minutes.
   cron.schedule('*/5 * * * *', updateMinerStats);
 
-  // Miner offline/back-online alerts, checked on the same 5-minute cadence.
-  // Delivered to Discord when DISCORD_WEBHOOK_URL is set, otherwise email.
-  if (isDiscordConfigured() || isEmailConfigured()) {
-    console.log(`Miner offline/back-online alerts enabled → ${isDiscordConfigured() ? 'Discord' : 'email'}.`);
-    cron.schedule('*/5 * * * *', async () => {
-      try {
-        // Only fetch a Graph token when email is the delivery channel. When Discord
-        // is configured the token isn't needed, and fetching it would let an Entra
-        // outage or an expired secret stop the Discord alerts for no reason.
-        const accessToken = isDiscordConfigured() ? null : await getAccessToken();
-        await checkOfflineMinersAndAlert(accessToken);
-      } catch (error) {
-        console.error('Error checking miner offline status:', error.message);
-      }
-    });
-  } else {
-    console.warn('Miner offline alerts disabled: set DISCORD_WEBHOOK_URL or the Graph email configuration.');
-  }
+  // Miner offline/back-online alerts, checked on the same 5-minute cadence. The delivery
+  // channels (Discord and/or email) are resolved per run from the saved notification
+  // settings, which can change at runtime via the admin UI — so there's no gating or token
+  // fetch here; each channel fetches what it needs only when it actually sends.
+  console.log('Miner offline/back-online alert check scheduled (every 5 min; channels from notification settings).');
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      await checkOfflineMinersAndAlert();
+    } catch (error) {
+      console.error('Error checking miner offline status:', error.message);
+    }
+  });
 
   // Daily email scheduled at 10:00 AM.
   if (isEmailConfigured()) {

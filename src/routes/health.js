@@ -2,13 +2,27 @@ import express from 'express';
 import * as config from '../config.js';
 import { isDbReady, getCachedXmrRate, getLastUpdated } from '../state.js';
 import { isEmailConfigured } from '../email/graphClient.js';
-import { isDiscordConfigured } from '../notify/discord.js';
+import { getNotificationSettings } from '../notify/settings.js';
 
 const router = express.Router();
 
 // Health check endpoint
-router.get('/health', (req, res) => {
+router.get('/health', async (req, res) => {
   const lastUpdated = getLastUpdated();
+
+  // Effective alert channels come from the saved settings (DB); fall back quietly if the DB
+  // isn't ready so the health endpoint never fails on it.
+  let minerAlertChannels = [];
+  let discordConfigStatus = 'missing';
+  try {
+    const s = await getNotificationSettings();
+    discordConfigStatus = s.discordConfigured ? 'configured' : 'missing';
+    if (s.discordConfigured) minerAlertChannels.push('discord');
+    if (s.emailEnabled && s.emailConfigured) minerAlertChannels.push('email');
+  } catch {
+    // leave defaults
+  }
+
   const healthStatus = {
     status: 'OK',
     uptime: Math.floor(process.uptime()),
@@ -19,11 +33,11 @@ router.get('/health', (req, res) => {
     hashrateSampleIntervalMs: config.HASHRATE_SAMPLE_MIN_INTERVAL_MS,
     walletConfigStatus: config.XMR_WALLET_ADDRESS ? 'configured' : 'missing',
     emailConfigStatus: isEmailConfigured() ? 'configured' : 'missing',
-    discordConfigStatus: isDiscordConfigured() ? 'configured' : 'missing',
-    minerAlertChannel: isDiscordConfigured() ? 'discord' : (isEmailConfigured() ? 'email' : 'none'),
+    discordConfigStatus,
+    minerAlertChannels,
     xmrRateStatus: getCachedXmrRate() !== null ? 'available' : 'unavailable',
     lastRateUpdate: lastUpdated ? lastUpdated.toISOString() : null,
-    version: '1.1.1'
+    version: '1.2.0'
   };
 
   res.status(200).json(healthStatus);

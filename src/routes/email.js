@@ -4,8 +4,9 @@ import { getAccessToken, sendEmail } from '../email/graphClient.js';
 import { sendDailyEmail } from '../email/dailyEmail.js';
 import { generateDailyEmailBody, generateMinerOfflineEmailBody, generateMinerBackOnlineEmailBody } from '../email/template.js';
 import { getMinerStats } from '../minerStats.js';
-import { getCachedXmrRate } from '../state.js';
-import { isDiscordConfigured, sendDiscordEmbed, buildMinerOfflineEmbed, buildMinerBackOnlineEmbed } from '../notify/discord.js';
+import { getCachedXmrRate, isDbReady } from '../state.js';
+import { sendDiscordEmbed, buildMinerOfflineEmbed, buildMinerBackOnlineEmbed, isValidDiscordWebhook } from '../notify/discord.js';
+import { getNotificationSettings, updateNotificationSettings, maskWebhook } from '../notify/settings.js';
 import * as config from '../config.js';
 
 const router = express.Router();
@@ -120,8 +121,9 @@ router.get('/test-back-online-alert', requireAdmin, async (req, res) => {
 // by default; pass ?kind=online for the back-online embed.
 router.get('/test-discord-alert', requireAdmin, async (req, res) => {
   try {
-    if (!isDiscordConfigured()) {
-      return res.status(400).send('Discord is not configured. Set DISCORD_WEBHOOK_URL in the environment.');
+    const settings = await getNotificationSettings();
+    if (!settings.discordConfigured) {
+      return res.status(400).send('Discord is not configured. Set a webhook URL in the admin settings.');
     }
     const workerId = req.query.workerId || 'test-rig';
     const kind = req.query.kind === 'online' ? 'online' : 'offline';
@@ -134,11 +136,80 @@ router.get('/test-discord-alert', requireAdmin, async (req, res) => {
     const embed = kind === 'offline'
       ? buildMinerOfflineEmbed(worker, offlineMinutes * 60 * 1000)
       : buildMinerBackOnlineEmbed(worker);
-    await sendDiscordEmbed(embed);
+    await sendDiscordEmbed(embed, settings.discordWebhookUrl);
     res.status(200).send(`Test Discord ${kind} alert sent for "${workerId}"!`);
   } catch (error) {
     console.error('Error sending test Discord alert:', error.message);
     res.status(500).send(`Failed to send test Discord alert: ${error.message}`);
+  }
+});
+
+// Read the current notification settings for the admin UI. The webhook is never returned in
+// full — only whether it's set, where it comes from, and a masked form.
+router.get('/notification-settings', requireAdmin, async (req, res) => {
+  try {
+    const s = await getNotificationSettings();
+    res.json({
+      emailEnabled: s.emailEnabled,
+      emailConfigured: s.emailConfigured,
+      discordConfigured: s.discordConfigured,
+      discordWebhookSource: s.discordWebhookSource,
+      discordWebhookMasked: maskWebhook(s.discordWebhookUrl),
+    });
+  } catch (error) {
+    console.error('Error reading notification settings:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update notification settings. Accepts { emailEnabled?: bool, discordWebhookUrl?: string }.
+// A webhook must be a real Discord URL; '' clears the override (Discord off).
+router.post('/notification-settings', requireAdmin, async (req, res) => {
+  try {
+    if (!isDbReady()) {
+      return res.status(503).json({ error: 'Database not ready; settings were not saved.' });
+    }
+    const body = req.body || {};
+    const patch = {};
+    if (typeof body.emailEnabled === 'boolean') {
+      patch.emailEnabled = body.emailEnabled;
+    }
+    if (typeof body.discordWebhookUrl === 'string') {
+      const v = body.discordWebhookUrl.trim();
+      if (v !== '' && !isValidDiscordWebhook(v)) {
+        return res.status(400).json({ error: 'Invalid Discord webhook URL. Expected https://discord.com/api/webhooks/…' });
+      }
+      patch.discordWebhookUrl = v;
+    }
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({ error: 'Nothing to update.' });
+    }
+
+    const updated = await updateNotificationSettings(patch);
+
+    // Confirm the write actually persisted (setAppState no-ops silently if the DB write failed).
+    if (typeof patch.emailEnabled === 'boolean' && updated.emailEnabled !== patch.emailEnabled) {
+      return res.status(500).json({ error: 'Settings did not persist. Try again.' });
+    }
+    if (typeof patch.discordWebhookUrl === 'string') {
+      const expectConfigured = patch.discordWebhookUrl !== '';
+      if (updated.discordConfigured !== expectConfigured
+        || (expectConfigured && updated.discordWebhookSource !== 'database')) {
+        return res.status(500).json({ error: 'Settings did not persist. Try again.' });
+      }
+    }
+
+    res.json({
+      ok: true,
+      emailEnabled: updated.emailEnabled,
+      emailConfigured: updated.emailConfigured,
+      discordConfigured: updated.discordConfigured,
+      discordWebhookSource: updated.discordWebhookSource,
+      discordWebhookMasked: maskWebhook(updated.discordWebhookUrl),
+    });
+  } catch (error) {
+    console.error('Error saving notification settings:', error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 

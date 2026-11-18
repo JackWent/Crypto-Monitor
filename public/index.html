@@ -254,6 +254,32 @@
                                 </button>
                             </div>
                             <div class="import-section">
+                                <div class="import-title">Alert Notifications</div>
+                                <div class="import-status" v-if="notifSettings">
+                                    Discord: <strong>{{ notifSettings.discordConfigured ? 'on' : 'off' }}</strong><template v-if="notifSettings.discordConfigured"> ({{ notifSettings.discordWebhookSource }} · {{ notifSettings.discordWebhookMasked }})</template>
+                                    &nbsp;·&nbsp; Email: <strong>{{ !notifSettings.emailConfigured ? 'not configured' : (notifSettings.emailEnabled ? 'on' : 'off') }}</strong>
+                                </div>
+                                <div class="import-controls">
+                                    <label class="import-file-label" style="flex-direction: row; align-items: center; gap: 10px;">
+                                        <input type="checkbox" v-model="notifEmailEnabled" :disabled="!notifSettings || !notifSettings.emailConfigured">
+                                        Also send alerts by email
+                                    </label>
+                                </div>
+                                <div class="import-controls">
+                                    <input
+                                        class="admin-password-input"
+                                        type="text"
+                                        v-model="notifWebhookInput"
+                                        autocomplete="off"
+                                        :placeholder="notifSettings &amp;&amp; notifSettings.discordConfigured ? ('New Discord webhook (current: ' + notifSettings.discordWebhookMasked + ')') : 'Discord webhook URL'"
+                                    >
+                                    <button class="admin-button admin-button--primary" :disabled="isSavingNotif" @click="saveNotificationSettings">
+                                        {{ isSavingNotif ? 'Saving...' : 'Save Notification Settings' }}
+                                    </button>
+                                </div>
+                                <div class="import-status" v-if="notifMessage">{{ notifMessage }}</div>
+                            </div>
+                            <div class="import-section">
                                 <div class="import-title">Export Historical JSON Backup</div>
                                 <div class="import-controls">
                                     <button class="admin-button" :disabled="isExportingHistory" @click="exportHistoryFiles">

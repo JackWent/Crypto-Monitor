@@ -45,6 +45,11 @@ createApp({
         const isSendingEmail = ref(false);
         const isSendingOfflineTestEmail = ref(false);
         const isSendingDiscordTest = ref(false);
+        const notifSettings = ref(null);
+        const notifEmailEnabled = ref(false);
+        const notifWebhookInput = ref('');
+        const isSavingNotif = ref(false);
+        const notifMessage = ref('');
         const isManualUpdating = ref(false);
         const isExportingHistory = ref(false);
         const isImportingHistory = ref(false);
@@ -608,6 +613,9 @@ createApp({
                 if (!isAdminAuthEnabled.value) {
                     adminAuthMessage.value = '';
                 }
+                if (isAdminAuthenticated.value) {
+                    loadNotificationSettings();
+                }
             } catch (error) {
                 console.error('Error checking admin session:', error);
                 isAdminAuthEnabled.value = true;
@@ -648,6 +656,7 @@ createApp({
                 adminPassword.value = '';
                 adminAuthMessage.value = '';
                 isAdminAuthenticated.value = true;
+                loadNotificationSettings();
             } catch (error) {
                 console.error('Error unlocking admin settings:', error);
                 isAdminAuthenticated.value = false;
@@ -738,6 +747,57 @@ createApp({
                 pushToast(`Failed to send test Discord alert: ${error.message}`, 'error');
             } finally {
                 isSendingDiscordTest.value = false;
+            }
+        }
+
+        async function loadNotificationSettings() {
+            try {
+                const response = await fetch('/notification-settings', { credentials: 'same-origin' });
+                if (!response.ok) {
+                    return; // not unlocked yet, or unavailable
+                }
+                const data = await response.json();
+                notifSettings.value = data;
+                notifEmailEnabled.value = Boolean(data.emailEnabled);
+            } catch (error) {
+                console.error('Error loading notification settings:', error);
+            }
+        }
+
+        async function saveNotificationSettings() {
+            if (isSavingNotif.value) {
+                return;
+            }
+
+            try {
+                isSavingNotif.value = true;
+                notifMessage.value = '';
+                const payload = { emailEnabled: notifEmailEnabled.value };
+                const webhook = notifWebhookInput.value.trim();
+                if (webhook) {
+                    payload.discordWebhookUrl = webhook;
+                }
+                const response = await fetch('/notification-settings', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json().catch(() => null);
+                if (!response.ok) {
+                    throw new Error(data?.error || response.statusText);
+                }
+                notifSettings.value = data;
+                notifEmailEnabled.value = Boolean(data.emailEnabled);
+                notifWebhookInput.value = '';
+                notifMessage.value = 'Saved.';
+                pushToast('Notification settings saved!', 'success');
+            } catch (error) {
+                console.error('Error saving notification settings:', error);
+                notifMessage.value = `Failed: ${error.message}`;
+                pushToast(`Failed to save settings: ${error.message}`, 'error');
+            } finally {
+                isSavingNotif.value = false;
             }
         }
 
@@ -992,6 +1052,11 @@ createApp({
             isSendingEmail,
             isSendingOfflineTestEmail,
             isSendingDiscordTest,
+            notifSettings,
+            notifEmailEnabled,
+            notifWebhookInput,
+            isSavingNotif,
+            notifMessage,
             isManualUpdating,
             isExportingHistory,
             isImportingHistory,
@@ -1013,6 +1078,7 @@ createApp({
             sendDailyEmail,
             sendTestOfflineAlert,
             sendTestDiscordAlert,
+            saveNotificationSettings,
             manualUpdate,
             exportHistoryFiles,
             handleHistoryFileChange,

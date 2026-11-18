@@ -9,6 +9,13 @@ export function isDiscordConfigured() {
   return Boolean(config.DISCORD_WEBHOOK_URL);
 }
 
+// Only genuine Discord webhook URLs are accepted — the server makes an outbound POST to
+// whatever is stored, so this guards against pointing it at an arbitrary host.
+const DISCORD_WEBHOOK_RE = /^https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[\w-]+$/;
+export function isValidDiscordWebhook(url) {
+  return typeof url === 'string' && DISCORD_WEBHOOK_RE.test(url.trim());
+}
+
 function dashboardUrl() {
   return config.DASHBOARD_PUBLIC_URL ? config.DASHBOARD_PUBLIC_URL.replace(/\/+$/, '') : '';
 }
@@ -63,15 +70,20 @@ export function buildMinerBackOnlineEmbed(worker) {
   return embed;
 }
 
-// Posts a single embed to the configured Discord webhook. Throws on failure so
-// callers (the alert loop) can leave the alert unmarked and retry next cycle.
-export async function sendDiscordEmbed(embed) {
-  if (!config.DISCORD_WEBHOOK_URL) {
-    throw new Error('DISCORD_WEBHOOK_URL is not configured');
+// Posts a single embed to a Discord webhook. The webhook URL is passed in (the effective
+// one from settings); it falls back to the env var so direct callers still work. Throws on
+// failure so the alert loop can leave the alert unmarked and retry next cycle.
+export async function sendDiscordEmbed(embed, webhookUrl) {
+  const url = (webhookUrl || config.DISCORD_WEBHOOK_URL || '').trim();
+  if (!url) {
+    throw new Error('No Discord webhook configured');
+  }
+  if (!isValidDiscordWebhook(url)) {
+    throw new Error('Invalid Discord webhook URL');
   }
   await axios.post(
-    config.DISCORD_WEBHOOK_URL,
+    url,
     { embeds: [embed] },
-    { headers: { 'Content-Type': 'application/json' }, timeout: 10000 }
+    { headers: { 'Content-Type': 'application/json' }, timeout: 10000, maxRedirects: 0 }
   );
 }
