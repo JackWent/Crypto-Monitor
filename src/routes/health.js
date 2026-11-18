@@ -37,7 +37,7 @@ router.get('/health', async (req, res) => {
     minerAlertChannels,
     xmrRateStatus: getCachedXmrRate() !== null ? 'available' : 'unavailable',
     lastRateUpdate: lastUpdated ? lastUpdated.toISOString() : null,
-    version: '1.2.0'
+    version: '1.2.1'
   };
 
   res.status(200).json(healthStatus);

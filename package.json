@@ -1,6 +1,6 @@
 {
   "name": "xmr-mining-dashboard",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Dashboard for monitoring XMR mining operations",
   "main": "server.js",
   "type": "module",
