@@ -23,7 +23,7 @@ router.get('/health', (req, res) => {
     minerAlertChannel: isDiscordConfigured() ? 'discord' : (isEmailConfigured() ? 'email' : 'none'),
     xmrRateStatus: getCachedXmrRate() !== null ? 'available' : 'unavailable',
     lastRateUpdate: lastUpdated ? lastUpdated.toISOString() : null,
-    version: '1.1.0'
+    version: '1.1.1'
   };
 
   res.status(200).json(healthStatus);

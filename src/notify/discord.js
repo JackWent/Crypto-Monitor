@@ -32,15 +32,15 @@ export function buildMinerOfflineEmbed(worker, offlineDurationMs) {
   const workerId = worker.workerId || 'Unknown worker';
   const url = dashboardUrl();
   const embed = {
-    title: `🔴 Miner Offline: ${workerId}`,
-    description: `**${workerId}** has been offline for over **${formatOfflineDuration(offlineDurationMs)}**. You'll get another alert when it's back.`,
+    title: `🚨 Miner Offline: ${workerId}`,
+    description: `⛏️ **${workerId}** has gone dark — offline for over **${formatOfflineDuration(offlineDurationMs)}**.\n🔔 You'll get a 🟢 ping the moment it's back to hashing.`,
     color: 0xff5f7a,
     fields: [
-      { name: 'Worker', value: workerId, inline: true },
-      { name: 'Offline for', value: formatOfflineDuration(offlineDurationMs), inline: true },
-      { name: 'Last share', value: formatLastShare(worker), inline: false },
+      { name: '🔧 Worker', value: workerId, inline: true },
+      { name: '⏱️ Offline for', value: formatOfflineDuration(offlineDurationMs), inline: true },
+      { name: '🕒 Last share', value: formatLastShare(worker), inline: false },
     ],
-    footer: { text: 'XMR Mining Dashboard' },
+    footer: { text: '⚡ XMR Mining Dashboard' },
     timestamp: new Date().toISOString(),
   };
   if (url) embed.url = url;
@@ -52,11 +52,11 @@ export function buildMinerBackOnlineEmbed(worker) {
   const workerId = worker.workerId || 'Unknown worker';
   const url = dashboardUrl();
   const embed = {
-    title: `🟢 Miner Back Online: ${workerId}`,
-    description: `**${workerId}** is back online and submitting shares again.`,
+    title: `✅ Miner Back Online: ${workerId}`,
+    description: `🎉 **${workerId}** is back online and submitting shares again. Happy hashing! ⛏️💚`,
     color: 0x3ddc84,
-    fields: [{ name: 'Worker', value: workerId, inline: true }],
-    footer: { text: 'XMR Mining Dashboard' },
+    fields: [{ name: '🔧 Worker', value: workerId, inline: true }],
+    footer: { text: '⚡ XMR Mining Dashboard' },
     timestamp: new Date().toISOString(),
   };
   if (url) embed.url = url;
